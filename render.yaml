@@ -2,10 +2,41 @@ services:
   - type: web
     name: aiqyn-learn-bot
     env: python
-    buildCommand: pip install -r requirements.txt
+    region: frankfurt
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: python bot.py
     envVars:
       - key: TELEGRAM_TOKEN
         sync: false
       - key: GROQ_API_KEY
         sync: false
+```
+
+4. Нажми **"Commit changes"**
+
+---
+
+### **ШАГ 3: В Render переделой настройки**
+
+1. Зайди в Render в свой сервис
+2. Слева нажми **"Settings"**
+3. Найди секцию **"Build & Deploy"**
+4. Измени **Build Command** на:
+```
+pip install --upgrade pip && pip install -r requirements.txt
+```
+5. Нажми **"Save Changes"**
+6. Нажми **"Manual Deploy"** → **"Deploy latest commit"**
+
+---
+
+### **Альтернативный способ (если не помогло):**
+
+Создай файл **Procfile** (без расширения!):
+
+1. В GitHub: **"Add file"** → **"Create new file"**
+2. Имя: **Procfile** (без .txt!)
+3. Содержимое:
+```
+worker: python bot.py
