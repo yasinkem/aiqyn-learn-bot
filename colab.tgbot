@@ -1,0 +1,880 @@
+# AIQYNLEARN TELEGRAM BOT - Версия с Groq API
+# Скопируйте ВЕСЬ этот код в новую ячейку Colab
+
+print("📦 Установка библиотек...")
+import subprocess
+import sys
+subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "python-telegram-bot", "groq", "nest_asyncio"])
+print("✅ Библиотеки установлены!")
+
+import os
+import json
+import asyncio
+import nest_asyncio
+from datetime import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters, ContextTypes
+from groq import Groq
+
+nest_asyncio.apply()
+
+# НАСТРОЙКИ
+TELEGRAM_TOKEN = "8067223959:AAGxDhVnK3kbFuNkZsSlDEikF9aoAaiY9XA"
+GROQ_API_KEY = "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"
+
+# Инициализация Groq клиента
+groq_client = Groq(api_key=GROQ_API_KEY)
+
+LANGUAGE, AGE, INTERESTS, TEACHER_STYLE, LESSON_MODE, TOPIC, QUESTION_COUNT, QUESTION_TYPE, CHATTING = range(9)
+user_data = {}
+
+def get_user_data(user_id):
+    if user_id not in user_data:
+        user_data[user_id] = {'language': 'ru', 'profile': {}, 'lessons': [], 'active_lesson': None}
+    return user_data[user_id]
+
+def create_main_keyboard(lang='ru'):
+    if lang == 'ru':
+        return ReplyKeyboardMarkup([['👤 Профиль', '📚 Уроки'], ['➕ Новый урок', '❓ Помощь']], resize_keyboard=True)
+    return ReplyKeyboardMarkup([['👤 Профиль', '📚 Сабактар'], ['➕ Жаңы сабак', '❓ Жардам']], resize_keyboard=True)
+
+def create_learning_keyboard(lang='ru'):
+    if lang == 'ru':
+        return ReplyKeyboardMarkup([['🔄 Новый вопрос', '📊 Прогресс'], ['🏠 Главное меню']], resize_keyboard=True)
+    return ReplyKeyboardMarkup([['🔄 Жаңы суроо', '📊 Прогресс'], ['🏠 Меню']], resize_keyboard=True)
+
+async def call_groq_api(prompt, user_profile=None, lesson_type=None):
+    try:
+        # Создаем системный промпт с персонализацией
+        system_prompt = "Ты - AiqynLearn, персональный AI-учитель. Учи мыслить, задавай наводящие вопросы."
+
+        if user_profile:
+            age = user_profile.get('age', 15)
+            interests = ', '.join(user_profile.get('interests', [])) or 'разные темы'
+            teacher_style = user_profile.get('teacherStyle', 'kind_mentor')
+            
+            # Стили учителя
+            styles = {
+                'anime_sensei': 'Ты как мудрый аниме-сенсей. Объясняй через истории и притчи.',
+                'strict_professor': 'Ты строгий профессор. Будь точным и требовательным.',
+                'kind_mentor': 'Ты добрый наставник. Поддерживай и хвали ученика.',
+                'sport_coach': 'Ты энергичный спортивный тренер. Мотивируй и вдохновляй.',
+                'gangsta': 'Ты крутой учитель. Объясняй на современном сленге с юмором.',
+                'alien': 'Ты инопланетный учёный. Удивляй необычными фактами.',
+                'minimalist': 'Ты минималист. Говори кратко и по делу.'
+            }
+            
+            style_instruction = styles.get(teacher_style, styles['kind_mentor'])
+            
+            if age <= 10:
+                complexity = "ОЧЕНЬ простыми словами, как для ребёнка. Много примеров из мультиков и игр. Используй 🎨🎬🎮 эмодзи!"
+            elif age <= 15:
+                complexity = "Доступно и интересно, с примерами из школы, игр и интернета. Используй 🏫🎮📱 эмодзи!"
+            else:
+                complexity = "Подробно, но понятно, с реальными примерами из жизни и науки. Используй 🌍🔬💼 эмодзи!"
+            
+            interests_text = f"Интересы ученика: {interests}. Связывай объяснение с этими темами!"
+            
+            system_prompt = f"""Ты - AiqynLearn, персональный AI-учитель.
+Ученику {age} лет.
+{interests_text}
+{style_instruction}
+Объясняй {complexity}
+В конце ВСЕГДА задай 2-3 вопроса для проверки понимания."""
+
+        # Вызываем Groq API
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",  # или "mixtral-8x7b-32768" для более быстрого ответа
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=2000,
+            top_p=0.9
+        )
+
+        return response.choices[0].message.content
+        
+    except Exception as e:
+        print(f"Ошибка Groq API: {e}")
+        return "Извините, произошла ошибка при генерации ответа. Попробуйте ещё раз!"
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+
+    welcome_text = f"👋 Привет, {update.effective_user.first_name}!\n\n🎯 *Добро пожаловать в AiqynLearn!*\n\nЯ - твой персональный AI-учитель.\n\nВыбери язык:"
+    keyboard = [[InlineKeyboardButton("🇷🇺 Русский", callback_data='lang_ru'), InlineKeyboardButton("🇰🇬 Кыргызча", callback_data='lang_ky')]]
+
+    await update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    return LANGUAGE
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+    lang = user.get('language', 'ru')
+
+    if lang == 'ru':
+        help_text = """*🤖 Помощь по AiqynLearn*
+
+*Основные команды:*
+/start - Начать работу
+/profile - Мой профиль
+/lessons - Мои уроки
+/newlesson - Новый урок
+/help - Эта справка
+
+*Режимы обучения:*
+📚 *Объяснение* - детальное объяснение темы
+💪 *Практика* - задачи для решения
+🎯 *Тест* - проверка знаний
+
+*Как использовать:*
+1. Создайте профиль
+2. Выберите тему
+3. Начните обучение
+4. Задавайте вопросы
+
+Есть вопросы? Пишите!"""
+    else:
+        help_text = """*🤖 AiqynLearn жардамы*
+
+*Негизги буйруктар:*
+/start - Баштоо
+/profile - Профиль
+/lessons - Сабактар
+/newlesson - Жаңы сабак
+/help - Жардам
+
+*Үйрөнүү режимдери:*
+📚 *Түшүндүрүү* - теманы деталдуу түшүндүрүү
+💪 *Практика* - чечүүгө маселелер
+🎯 *Тест* - билимди текшерүү"""
+
+    await update.message.reply_text(help_text, parse_mode='Markdown', reply_markup=create_main_keyboard(lang))
+
+async def handle_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+    lang = query.data.split('_')[1]
+    user['language'] = lang
+
+    if lang == 'ru':
+        await query.edit_message_text("🇷🇺 Русский выбран!")
+        await context.bot.send_message(
+            chat_id=query.message.chat_id, 
+            text="*Сколько тебе лет?*\n\nНапиши свой возраст (от 5 до 100):", 
+            parse_mode='Markdown',
+            reply_markup=ReplyKeyboardRemove()
+        )
+    else:
+        await query.edit_message_text("🇰🇬 Кыргызча тандалды!")
+        await context.bot.send_message(
+            chat_id=query.message.chat_id, 
+            text="*Жашың канча?*\n\nЖашыңызды жазыңыз (5тен 100гө чейин):", 
+            parse_mode='Markdown',
+            reply_markup=ReplyKeyboardRemove()
+        )
+
+    return AGE
+
+async def handle_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+    lang = user.get('language', 'ru')
+
+    try:
+        age = int(update.message.text)
+        if age < 5 or age > 100:
+            raise ValueError
+
+        user['profile']['age'] = age
+
+        if lang == 'ru':
+            interests = [
+                ["⚽ Спорт", "🎮 Игры"],
+                ["🎬 Фильмы", "🎵 Музыка"], 
+                ["🧪 Наука", "💻 Технологии"],
+                ["📚 Книги", "🎨 Искусство"],
+                ["🌌 Космос", "🐉 Фэнтези"],
+                ["✅ Готово"]
+            ]
+            text = "*Отлично! Что тебе интересно?*\n\nВыбери свои интересы (можно несколько):\n\nЭто поможет мне объяснять темы через то, что тебе нравится!"
+        else:
+            interests = [
+                ["⚽ Спорт", "🎮 Оюндар"],
+                ["🎬 Тасмалар", "🎵 Музыка"],
+                ["🧪 Илим", "💻 Технологиялар"],
+                ["📚 Китептер", "🎨 Көркөм өнөр"],
+                ["🌌 Космос", "🐉 Фэнтези"],
+                ["✅ Даяр"]
+            ]
+            text = "*Жакшы! Сизге эмне кызык?*\n\nКызыкчылыктарыңызды тандаңыз (бир нечесин):"
+
+        user['profile']['interests'] = []
+        await update.message.reply_text(text, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup(interests, resize_keyboard=True))
+        return INTERESTS
+    except ValueError:
+        error_msg = "Пожалуйста, введи реальный возраст от 5 до 100:" if lang == 'ru' else "Туура жаш жазыңыз (5тен 100гө чейин):"
+        await update.message.reply_text(error_msg)
+        return AGE
+
+async def handle_interests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+    lang = user.get('language', 'ru')
+    text = update.message.text
+
+    if text in ["✅ Готово", "✅ Даяр"]:
+        # Выбор стиля учителя
+        if lang == 'ru':
+            styles = [
+                ["👨‍🏫 Аниме-сенсей", "📚 Строгий профессор"],
+                ["🤝 Добрый наставник", "🏃 Спортивный тренер"],
+                ["😎 Крутой учитель", "👽 Инопланетный учёный"],
+                ["🎯 Минималист", "✅ Завершить"]
+            ]
+            text = "*Выбери стиль своего учителя:*\n\nКаким ты хочешь видеть своего AI-учителя?"
+        else:
+            styles = [
+                ["👨‍🏫 Аниме-сенсей", "📚 Катуу профессор"],
+                ["🤝 Жылуу наставник", "🏃 Спорттук тренер"],
+                ["😎 Салттуу мугалим", "👽 Инопланеталык илимпоз"],
+                ["🎯 Минималист", "✅ Бүтүрүү"]
+            ]
+            text = "*Өзүңүздүн мугалимиңиздин стилин тандаңыз:*\n\nAI-мугалимиңиз кандай болушун каалайсыз?"
+
+        user['profile']['teacherStyle'] = None
+        await update.message.reply_text(text, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup(styles, resize_keyboard=True))
+        return TEACHER_STYLE
+
+    if text not in user['profile']['interests']:
+        user['profile']['interests'].append(text)
+
+    current = ', '.join(user['profile']['interests'])
+    reply = f"✅ Добавлено: *{text}*\n\nТекущие интересы: {current}\n\nВыбери ещё или нажми 'Готово'" if lang == 'ru' else f"✅ Кошулду: *{text}*\n\n{current}\n\nБашка тандаңыз же 'Даяр' басыңыз"
+    await update.message.reply_text(reply, parse_mode='Markdown')
+    return INTERESTS
+
+async def handle_teacher_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+    lang = user.get('language', 'ru')
+    text = update.message.text
+
+    # Маппинг стилей
+    style_map = {
+        '👨‍🏫 Аниме-сенсей': 'anime_sensei',
+        '📚 Строгий профессор': 'strict_professor',
+        '📚 Катуу профессор': 'strict_professor',
+        '🤝 Добрый наставник': 'kind_mentor',
+        '🤝 Жылуу наставник': 'kind_mentor',
+        '🏃 Спортивный тренер': 'sport_coach',
+        '🏃 Спорттук тренер': 'sport_coach',
+        '😎 Крутой учитель': 'gangsta',
+        '😎 Салттуу мугалим': 'gangsta',
+        '👽 Инопланетный учёный': 'alien',
+        '👽 Инопланеталык илимпоз': 'alien',
+        '🎯 Минималист': 'minimalist'
+    }
+
+    if text in ["✅ Завершить", "✅ Бүтүрүү"]:
+        # Завершаем создание профиля
+        profile = user['profile']
+        
+        if not profile.get('teacherStyle'):
+            profile['teacherStyle'] = 'kind_mentor'
+        
+        if lang == 'ru':
+            caption = f"""🎉 *Профиль успешно создан!*
+
+👤 *Твои данные:*
+• 🎂 Возраст: {profile['age']} лет
+• ❤️ Интересы: {', '.join(profile.get('interests', ['Разные темы']))}
+• 👨‍🏫 Стиль учителя: {text if text not in ['✅ Завершить', '✅ Бүтүрүү'] else 'Добрый наставник'}
+
+Теперь ты готов к обучению!
+Выбери действие из меню ниже:"""
+        else:
+            caption = f"""🎉 *Профиль ийгиликтүү түзүлдү!*
+
+👤 *Сиздин маалыматтарыңыз:*
+• 🎂 Жаш: {profile['age']} жаш
+• ❤️ Кызыкчылыктар: {', '.join(profile.get('interests', ['Ар кандай темалар']))}
+• 👨‍🏫 Мугалим стили: {text if text not in ['✅ Завершить', '✅ Бүтүрүү'] else 'Жылуу наставник'}
+
+Эми сиз үйрөнүүгө даярсыз!
+Төмөндөгү менюдан аракет тандаңыз:"""
+        
+        await update.message.reply_text(
+            caption,
+            parse_mode='Markdown',
+            reply_markup=create_main_keyboard(lang)
+        )
+        
+        return ConversationHandler.END
+
+    # Сохраняем стиль учителя
+    user['profile']['teacherStyle'] = style_map.get(text, 'kind_mentor')
+    
+    current_style = text
+    if lang == 'ru':
+        reply = f"✅ Выбран стиль: *{current_style}*\n\nОтличный выбор! Нажми '✅ Завершить' чтобы закончить создание профиля."
+    else:
+        reply = f"✅ Тандалды: *{current_style}*\n\nЖакшы тандоо! '✅ Бүтүрүү' басыңыз."
+    
+    await update.message.reply_text(reply, parse_mode='Markdown')
+    return TEACHER_STYLE
+
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+    lang = user.get('language', 'ru')
+    profile = user.get('profile', {})
+
+    if not profile:
+        msg = "У тебя ещё нет профиля. Используй /start чтобы создать его!" if lang == 'ru' else "Профиль жок. Түзүү үчүн /start колдонуңуз!"
+        await update.message.reply_text(msg, reply_markup=create_main_keyboard(lang))
+        return
+
+    # Отображаем стиль учителя
+    style_display = {
+        'anime_sensei': '👨‍🏫 Аниме-сенсей',
+        'strict_professor': '📚 Строгий профессор',
+        'kind_mentor': '🤝 Добрый наставник',
+        'sport_coach': '🏃 Спортивный тренер',
+        'gangsta': '😎 Крутой учитель',
+        'alien': '👽 Инопланетный учёный',
+        'minimalist': '🎯 Минималист'
+    }
+
+    teacher_style = style_display.get(profile.get('teacherStyle', 'kind_mentor'), 'Не выбран')
+
+    if lang == 'ru':
+        text = f"""👤 *Твой профиль*
+
+*Основная информация:*
+• 🎂 Возраст: {profile.get('age', 'Не указан')} лет
+• ❤️ Интересы: {', '.join(profile.get('interests', ['Не указаны']))}
+• 👨‍🏫 Стиль учителя: {teacher_style}
+
+*Статистика:*
+• 📚 Всего уроков: {len(user.get('lessons', []))}
+• 🏆 Активных уроков: {1 if user.get('active_lesson') else 0}
+
+Используй меню для продолжения обучения!"""
+    else:
+        text = f"""👤 *Сиздин профиль*
+
+*Негизги маалыматтар:*
+• 🎂 Жаш: {profile.get('age', 'Көрсөтүлгөн эмес')} жаш
+• ❤️ Кызыкчылыктар: {', '.join(profile.get('interests', ['Көрсөтүлгөн эмес']))}
+• 👨‍🏫 Мугалим стили: {teacher_style}
+
+*Статистика:*
+• 📚 Жалпы сабактар: {len(user.get('lessons', []))}
+• 🏆 Активдүү сабактар: {1 if user.get('active_lesson') else 0}"""
+
+    await update.message.reply_text(text, parse_mode='Markdown', reply_markup=create_main_keyboard(lang))
+
+async def new_lesson_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+    lang = user.get('language', 'ru')
+
+    if not user.get('profile'):
+        msg = "Сначала создай профиль через /start!" if lang == 'ru' else "Алгач /start менен профиль түзүңүз!"
+        await update.message.reply_text(msg, reply_markup=create_main_keyboard(lang))
+        return
+
+    if lang == 'ru':
+        text = "*Выбери режим обучения:*\n\nКак ты хочешь изучать новую тему?"
+        buttons = [
+            [InlineKeyboardButton("📚 Объяснение", callback_data='mode_explanation')],
+            [InlineKeyboardButton("💪 Практика", callback_data='mode_practice')],
+            [InlineKeyboardButton("🎯 Тест", callback_data='mode_quiz')]
+        ]
+    else:
+        text = "*Үйрөнүү режимин тандаңыз:*\n\nЖаңы теманы кандай үйрөнгүңүз келет?"
+        buttons = [
+            [InlineKeyboardButton("📚 Түшүндүрүү", callback_data='mode_explanation')],
+            [InlineKeyboardButton("💪 Практика", callback_data='mode_practice')],
+            [InlineKeyboardButton("🎯 Тест", callback_data='mode_quiz')]
+        ]
+
+    await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(buttons))
+    return LESSON_MODE
+
+async def handle_lesson_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+    lang = user.get('language', 'ru')
+
+    mode = query.data.split('_')[1]
+    
+    # Сохраняем режим в user_data
+    if 'creating_lesson' not in user:
+        user['creating_lesson'] = {}
+    user['creating_lesson']['mode'] = mode
+
+    mode_names = {
+        'explanation': '📚 Объяснение' if lang == 'ru' else '📚 Түшүндүрүү',
+        'practice': '💪 Практика',
+        'quiz': '🎯 Тест'
+    }
+
+    if lang == 'ru':
+        text = f"""✅ *Выбран режим: {mode_names[mode]}*
+
+Теперь напиши *тему урока*:
+
+*Примеры тем:*
+• Законы Ньютона
+• Фотосинтез растений
+• Дроби в математике
+• Великая Отечественная война
+• Основы программирования на Python
+• Древний Египет
+• Клеточное строение организмов
+
+Напиши свою тему урока:"""
+    else:
+        text = f"""✅ *Тандалды: {mode_names[mode]}*
+
+Эми *сабактын темасын* жазыңыз:
+
+*Темалардын мисалдары:*
+• Ньютондун мыйзамдары
+• Өсүмдүктөрдүн фотосинтези
+• Математикада бөлчөктөр
+• Улуу Ата Мекендик согуш
+• Python программалоонун негиздери
+• Байыркы Египет
+• Организмдердин клеткалык түзүлүшү
+
+Өз темаңызды жазыңыз:"""
+
+    await query.edit_message_text(text, parse_mode='Markdown')
+    return TOPIC
+
+async def handle_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+    lang = user.get('language', 'ru')
+    topic = update.message.text
+
+    if len(topic) < 3:
+        error = "❌ Тема слишком короткая! Напиши минимум 3 символа." if lang == 'ru' else "❌ Тема кыска! Кеминде 3 символ жазыңыз."
+        await update.message.reply_text(error)
+        return TOPIC
+
+    # Сохраняем тему
+    if 'creating_lesson' not in user:
+        user['creating_lesson'] = {}
+    user['creating_lesson']['topic'] = topic
+
+    # Создаем урок
+    loading = "⏳ *Создаю персональный урок...*\n\nAI анализирует твой профиль и подбирает материал!" if lang == 'ru' else "⏳ *Сабак түзүлүүдө...*\n\nAI профилиңизди анализдеп жатат!"
+    msg = await update.message.reply_text(loading, parse_mode='Markdown')
+
+    lesson_data = user.get('creating_lesson', {})
+    lesson_mode = lesson_data.get('mode', 'explanation')
+    topic_text = lesson_data.get('topic', '')
+
+    # Создаем промпт в зависимости от режима
+    profile = user.get('profile', {})
+    age = profile.get('age', 15)
+    interests = profile.get('interests', [])
+    teacher_style = profile.get('teacherStyle', 'kind_mentor')
+
+    # Подготовка контекста для ИИ
+    context_info = f"""
+КОНТЕКСТ УЧЕНИКА:
+- Возраст: {age} лет
+- Интересы: {', '.join(interests) if interests else 'разные темы'}
+- Стиль обучения: {teacher_style}
+
+ТЕМА УРОКА: {topic_text}
+"""
+
+    if lesson_mode == 'explanation':
+        prompt = f"""{context_info}
+
+ОБЪЯСНИ ТЕМУ "{topic_text}":
+
+1. 🎯 Начни с простого определения - что это такое простыми словами?
+2. 💡 Объясни ПОЧЕМУ эта тема важна в жизни/учебе
+3. 📝 Приведи 2-3 конкретных примера
+4. ✨ Добавь интересный факт о теме
+5. 🔗 Свяжи объяснение с интересами ученика
+6. ❓ В конце задай 3 вопроса для проверки понимания
+
+Используй эмодзи, будь увлекательным!"""
+    
+    elif lesson_mode == 'practice':
+        prompt = f"""{context_info}
+
+СОЗДАЙ ПРАКТИЧЕСКОЕ ЗАДАНИЕ ПО ТЕМЕ "{topic_text}":
+
+1. 📋 Кратко объясни концепцию (1-2 предложения)
+2. 💪 Задача №1 - простая, с ПОЛНЫМ пошаговым решением
+3. 🎯 Задача №2 - средней сложности, для самостоятельного решения
+4. 💡 Подсказки ко второй задаче (если нужно)
+5. ✅ Критерии правильного ответа
+6. 🔗 Свяжи задачи с интересами ученика
+
+Сделай объяснение понятным!"""
+    
+    else:  # quiz
+        prompt = f"""{context_info}
+
+СОЗДАЙ ТЕСТ ПО ТЕМЕ "{topic_text}":
+
+Формат:
+📝 *Тест: {topic_text}*
+
+❓ *Вопрос 1:* [Текст вопроса]
+А) [вариант А]
+Б) [вариант Б]
+В) [вариант В]
+Г) [вариант Г]
+
+[Ещё 4 вопроса]
+
+В конце: "Напиши ответы буквами (например: А, Б, В, Г, А)"
+
+Правильные ответы НЕ указывай!"""
+
+    # Вызываем Groq API
+    ai_response = await call_groq_api(prompt, profile, lesson_mode)
+
+    # Создаем объект урока
+    new_lesson = {
+        'id': str(datetime.now().timestamp()),
+        'topic': topic_text,
+        'type': lesson_mode,
+        'content': ai_response,
+        'created': datetime.now().isoformat(),
+        'progress': 0
+    }
+
+    if 'lessons' not in user:
+        user['lessons'] = []
+    user['lessons'].append(new_lesson)
+    user['active_lesson'] = new_lesson
+
+    mode_emoji = {'explanation': '📚', 'practice': '💪', 'quiz': '🎯'}
+    mode_names = {
+        'explanation': 'Объяснение' if lang == 'ru' else 'Түшүндүрүү',
+        'practice': 'Практика',
+        'quiz': 'Тест'
+    }
+
+    if lang == 'ru':
+        caption = f"""✅ *Урок успешно создан!*
+
+{mode_emoji[lesson_mode]} *Режим:* {mode_names[lesson_mode]}
+📖 *Тема:* {topic_text}
+👤 *Персонализация:* ✅ (возраст {age}, интересы: {', '.join(interests[:2]) if interests else 'учтены'})
+
+────────────────
+{ai_response}
+────────────────
+
+💬 *Что дальше?*
+• Задавай вопросы по теме
+• Попроси объяснить подробнее
+• Или создай новый урок"""
+    else:
+        caption = f"""✅ *Сабак түзүлдү!*
+
+{mode_emoji[lesson_mode]} *Режим:* {mode_names[lesson_mode]}
+📖 *Тема:* {topic_text}
+👤 *Жекечелөө:* ✅ (жаш {age}, кызыкчылыктар: {', '.join(interests[:2]) if interests else 'эске алынган'})
+
+────────────────
+{ai_response}
+────────────────
+
+💬 *Эми эмне кылабыз?*
+• Тема боюнча суроо бериңиз
+• Толугураак түшүндүрүүнү сураңыз
+• Же жаңы сабак түзүңүз"""
+
+    # Проверяем длину сообщения
+    if len(caption) > 4000:
+        parts = []
+        current_part = ""
+        lines = caption.split('\n')
+        
+        for line in lines:
+            if len(current_part) + len(line) + 1 < 4000:
+                current_part += line + '\n'
+            else:
+                parts.append(current_part)
+                current_part = line + '\n'
+        
+        if current_part:
+            parts.append(current_part)
+        
+        await msg.edit_text(parts[0], parse_mode='Markdown')
+        for part in parts[1:]:
+            await update.message.reply_text(part, parse_mode='Markdown')
+    else:
+        await msg.edit_text(caption, parse_mode='Markdown')
+
+    await update.message.reply_text("🎓 Готов к обучению! Используй кнопки ниже:" if lang == 'ru' else "🎓 Үйрөнүүгө даярмын! Төмөнкү баскычтарды колдонуңуз:", reply_markup=create_learning_keyboard(lang))
+
+    # Очищаем временные данные
+    if 'creating_lesson' in user:
+        del user['creating_lesson']
+
+    return CHATTING
+
+async def my_lessons_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+    lang = user.get('language', 'ru')
+    lessons = user.get('lessons', [])
+
+    if not lessons:
+        msg = "📭 У тебя пока нет уроков. Создай свой первый урок через меню '➕ Новый урок'!" if lang == 'ru' else "📭 Сизде азырынча сабак жок. Биринчи сабагыңызды '➕ Жаңы сабак' менюсу аркылуу түзүңүз!"
+        await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=create_main_keyboard(lang))
+        return
+
+    text = "📚 *Твои уроки:*\n\n" if lang == 'ru' else "📚 *Сиздин сабактарыңыз:*\n\n"
+    
+    mode_emoji = {'explanation': '📚', 'practice': '💪', 'quiz': '🎯'}
+    
+    for i, lesson in enumerate(lessons[-5:], 1):  # Показываем последние 5 уроков
+        date = lesson['created'][:10]
+        progress = lesson.get('progress', 0)
+        
+        if lang == 'ru':
+            text += f"{i}. *{lesson['topic']}*\n"
+            text += f"   {mode_emoji.get(lesson['type'], '📝')} | 📅 {date} | 📊 {progress}%\n\n"
+        else:
+            text += f"{i}. *{lesson['topic']}*\n"
+            text += f"   {mode_emoji.get(lesson['type'], '📝')} | 📅 {date} | 📊 {progress}%\n\n"
+
+    if lang == 'ru':
+        text += "\n*Выбери урок для продолжения или создай новый!*"
+    else:
+        text += "\n*Улантуу үчүн сабакты тандаңыз же жаңысын түзүңүз!*"
+
+    await update.message.reply_text(text, parse_mode='Markdown', reply_markup=create_main_keyboard(lang))
+
+async def handle_chatting(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+    lang = user.get('language', 'ru')
+    user_message = update.message.text
+
+    if user_message in ['🏠 Главное меню', '🏠 Меню']:
+        await update.message.reply_text(
+            "🏠 Возвращаюсь в главное меню..." if lang == 'ru' else "🏠 Негизги менюго кайтам...",
+            reply_markup=create_main_keyboard(lang)
+        )
+        return ConversationHandler.END
+
+    if user_message in ['📊 Прогресс', '📊 Прогресс']:
+        lesson = user.get('active_lesson')
+        if lesson:
+            topic = lesson.get('topic', 'Не указана')
+            progress = lesson.get('progress', 0)
+            if lang == 'ru':
+                text = f"""📊 *Твой прогресс*
+
+📖 *Тема:* {topic}
+✅ *Прогресс:* {progress}%
+🌟 *Уроков завершено:* {len([l for l in user.get('lessons', []) if l.get('progress', 0) >= 80])}
+
+Продолжай в том же духе! 💪"""
+            else:
+                text = f"""📊 *Сиздин прогрессиңиз*
+
+📖 *Тема:* {topic}
+✅ *Прогресс:* {progress}%
+🌟 *Аякталган сабактар:* {len([l for l in user.get('lessons', []) if l.get('progress', 0) >= 80])}"""
+            await update.message.reply_text(text, parse_mode='Markdown', reply_markup=create_learning_keyboard(lang))
+        return CHATTING
+
+    if user_message in ['🔄 Новый вопрос', '🔄 Жаңы суроо']:
+        lesson = user.get('active_lesson')
+        if lesson:
+            topic = lesson.get('topic', 'теме')
+            profile = user.get('profile', {})
+            
+            prompt = f"""Создай новый интересный вопрос по теме "{topic}" для проверки понимания.
+
+Контекст ученика:
+- Возраст: {profile.get('age', 15)} лет
+- Интересы: {', '.join(profile.get('interests', ['разные темы']))}
+
+Вопрос должен быть:
+1. Соответствовать возрасту ученика
+2. Связан с интересами ученика
+3. Проверять понимание, а не память
+4. Иметь наводящие подсказки
+5. Быть интересным и увлекательным
+
+Также дай подсказки и объяснение ответа."""
+
+            loading = await update.message.reply_text("⏳ Генерирую интересный вопрос... ✨" if lang == 'ru' else "⏳ Кызыктуу суроо түзүлүүдө... ✨")
+            ai_response = await call_groq_api(prompt, profile)
+            await loading.edit_text(f"❓ *Новый вопрос по теме \"{topic}\":*\n\n{ai_response}", parse_mode='Markdown')
+        else:
+            msg = "Сначала создай урок!" if lang == 'ru' else "Алгач сабак түзүңүз!"
+            await update.message.reply_text(msg)
+        return CHATTING
+
+    # Обработка обычных вопросов пользователя
+    loading = await update.message.reply_text("⏳ Думаю над ответом... 🤔" if lang == 'ru' else "⏳ Жооп жөнүндө ойлонуп жатам... 🤔")
+    
+    active_lesson = user.get('active_lesson', {})
+    topic = active_lesson.get('topic', 'общая тема')
+    profile = user.get('profile', {})
+
+    context_prompt = f"""КОНТЕКСТ:
+- Текущая тема урока: "{topic}"
+- Возраст ученика: {profile.get('age', 15)} лет
+- Интересы ученика: {', '.join(profile.get('interests', ['разные темы']))}
+- Стиль учителя: {profile.get('teacherStyle', 'kind_mentor')}
+
+ВОПРОС УЧЕНИКА: {user_message}
+
+ОТВЕТЬ:
+1. Сначала покажи, что понял вопрос
+2. Объясни подробно, но понятно для возраста ученика
+3. Приведи примеры из интересов ученика
+4. Задай уточняющий вопрос чтобы проверить понимание
+5. Будь поддерживающим и мотивирующим
+6. Используй эмодзи чтобы сделать ответ живым
+
+Помни: цель - не дать ответ, а научить понимать!"""
+
+    ai_response = await call_groq_api(context_prompt, profile)
+
+    # Обновляем прогресс
+    if 'active_lesson' in user and user['active_lesson']:
+        current_progress = user['active_lesson'].get('progress', 0)
+        if current_progress < 100:
+            user['active_lesson']['progress'] = min(100, current_progress + 5)
+
+    await loading.edit_text(f"💡 *Ответ:*\n\n{ai_response}", parse_mode='Markdown')
+    
+    if lang == 'ru':
+        follow_up = "\n\nЕсть ещё вопросы? Задавай! Или используй кнопки ниже 👇"
+    else:
+        follow_up = "\n\nДагы суроолор барбы? Сураңыз! Же төмөнкү баскычтарды колдонуңуз 👇"
+    
+    await update.message.reply_text(follow_up, reply_markup=create_learning_keyboard(lang))
+    return CHATTING
+
+async def handle_text_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+    lang = user.get('language', 'ru')
+    text = update.message.text
+
+    if text in ['➕ Новый урок', '➕ Жаңы сабак']:
+        return await new_lesson_command(update, context)
+    elif text in ['📚 Уроки', '📚 Сабактар']:
+        return await my_lessons_command(update, context)
+    elif text in ['👤 Профиль']:
+        return await profile_command(update, context)
+    elif text in ['❓ Помощь', '❓ Жардам']:
+        return await help_command(update, context)
+    else:
+        msg = "Выбери действие из меню:" if lang == 'ru' else "Менюдан тандаңыз:"
+        await update.message.reply_text(msg, reply_markup=create_main_keyboard(lang))
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_user_data(user_id)
+    lang = user.get('language', 'ru')
+    
+    msg = "Действие отменено. Используй меню для продолжения." if lang == 'ru' else "Аракет токтотулду. Улантуу үчүн менюну колдонуңуз."
+    await update.message.reply_text(msg, reply_markup=create_main_keyboard(lang))
+    return ConversationHandler.END
+
+def main():
+    print("🚀 Запускаем бота AiqynLearn с Groq API...")
+    print("🔑 Telegram токен:", TELEGRAM_TOKEN[:15] + "...")
+    print("🔑 Groq API ключ:", GROQ_API_KEY[:15] + "...")
+    print("🤖 Используем модель: llama-3.3-70b-versatile")
+
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+
+    # ConversationHandler для создания профиля
+    profile_conv = ConversationHandler(
+        entry_points=[CommandHandler('start', start)],
+        states={
+            LANGUAGE: [CallbackQueryHandler(handle_language, pattern='^lang_')],
+            AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_age)],
+            INTERESTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_interests)],
+            TEACHER_STYLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_teacher_style)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+        allow_reentry=True
+    )
+
+    # ConversationHandler для создания уроков
+    lesson_conv = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex('^(➕ Новый урок|➕ Жаңы сабак)$'), new_lesson_command),
+            CommandHandler('newlesson', new_lesson_command)
+        ],
+        states={
+            LESSON_MODE: [CallbackQueryHandler(handle_lesson_mode, pattern='^mode_')],
+            TOPIC: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_topic)],
+            CHATTING: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_chatting)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+        allow_reentry=True
+    )
+
+    # Добавляем все обработчики
+    app.add_handler(profile_conv)
+    app.add_handler(lesson_conv)
+    
+    # Команды
+    app.add_handler(CommandHandler('help', help_command))
+    app.add_handler(CommandHandler('profile', profile_command))
+    app.add_handler(CommandHandler('lessons', my_lessons_command))
+    app.add_handler(CommandHandler('cancel', cancel))
+    
+    # Обработка кнопок главного меню
+    app.add_handler(MessageHandler(filters.Regex('^(👤 Профиль|📚 Уроки|📚 Сабактар|❓ Помощь|❓ Жардам)$'), handle_text_messages))
+    
+    # Обработка любых других текстовых сообщений
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
+
+    print("✅ Бот настроен и запущен!")
+    print("💬 Отправь /start в Telegram своему боту!")
+    print("⏹️ Нажми Ctrl+C для остановки")
+    print("-" * 50)
+
+    # Запускаем polling
+    app.run_polling(
+        poll_interval=1.0,
+        timeout=10,
+        bootstrap_retries=3,
+        drop_pending_updates=True,
+        allowed_updates=Update.ALL_TYPES
+    )
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n👋 Бот остановлен пользователем")
+    except Exception as e:
+        print(f"❌ Ошибка запуска: {e}")
