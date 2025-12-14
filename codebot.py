@@ -31,9 +31,9 @@ user_data = {}
 def get_user_data(user_id):
     if user_id not in user_data:
         user_data[user_id] = {
-            'language': 'ru', 
-            'profile': {}, 
-            'lessons': [], 
+            'language': 'ru',
+            'profile': {},
+            'lessons': [],
             'active_lesson': None,
             'current_quiz': None,
             'quiz_answers': [],
@@ -56,63 +56,63 @@ def create_number_keyboard(lang='ru'):
     """Создает клавиатуру для выбора количества вопросов (1-10)"""
     buttons = []
     row = []
-    
+
     for i in range(1, 11):
         button_text = f"{i}"
         callback_data = f"quiz_count_{i}"
         row.append(InlineKeyboardButton(button_text, callback_data=callback_data))
-        
+
         if i % 5 == 0:
             buttons.append(row)
             row = []
-    
+
     if row:
         buttons.append(row)
-    
+
     if lang == 'ru':
         buttons.append([InlineKeyboardButton("❌ Отменить", callback_data='quiz_cancel')])
     else:
         buttons.append([InlineKeyboardButton("❌ Токтотуу", callback_data='quiz_cancel')])
-    
+
     return InlineKeyboardMarkup(buttons)
 
 def create_quiz_keyboard(options, lang='ru'):
     """Создает клавиатуру для теста с вариантами ответов"""
     buttons = []
     row = []
-    
+
     for i, option in enumerate(options):
         letter = chr(65 + i)  # A, B, C, D
         button_text = f"{letter}) {option}"
         callback_data = f"quiz_answer_{letter}"
-        
+
         row.append(InlineKeyboardButton(button_text, callback_data=callback_data))
-        
+
         if len(row) == 2:
             buttons.append(row)
             row = []
-    
+
     if row:
         buttons.append(row)
-    
+
     if lang == 'ru':
         buttons.append([InlineKeyboardButton("🏁 Завершить тест досрочно", callback_data='quiz_finish')])
     else:
         buttons.append([InlineKeyboardButton("🏁 Тестти эрте аяктоо", callback_data='quiz_finish')])
-    
+
     return InlineKeyboardMarkup(buttons)
 
 async def call_groq_api(prompt, user_profile=None, lang='ru', mode=None):
     try:
         # Определяем язык системы
         system_lang = "Russian" if lang == 'ru' else "Kyrgyz"
-        
+
         # Создаем системный промпт с методами обучения
         if user_profile:
             age = user_profile.get('age', 15)
             interests = ', '.join(user_profile.get('interests', [])) or 'разные темы'
             teacher_style = user_profile.get('teacherStyle', 'kind_mentor')
-            
+
             # Методы обучения в зависимости от возраста
             learning_methods = ""
             if age <= 10:
@@ -122,7 +122,7 @@ async def call_groq_api(prompt, user_profile=None, lang='ru', mode=None):
 3. ИГРОВОЙ МЕТОД - превращай обучение в игру
 4. МЕТОД ПОВТОРЕНИЯ - повторяй ключевые моменты 3 раза разными словами
 5. МЕТОД ЭМОЦИОНАЛЬНОЙ СВЯЗИ - связывай с чувствами и эмоциями ребенка"""
-            
+
             elif age <= 15:
                 learning_methods = """ИСПОЛЬЗУЙ ПРОВЕРЕННЫЕ МЕТОДЫ ОБУЧЕНИЯ ДЛЯ ПОДРОСТКОВ:
 1. МЕТОД ПРОБЛЕМНОГО ОБУЧЕНИЯ - задавай провокационные вопросы
@@ -130,7 +130,7 @@ async def call_groq_api(prompt, user_profile=None, lang='ru', mode=None):
 3. МЕТОД ДИСКУССИИ - вовлекай в обсуждение
 4. МЕТОД КЕЙСОВ - используй реальные жизненные ситуации
 5. МЕТОД МОТИВАЦИИ - покажи, зачем это нужно в жизни"""
-            
+
             else:
                 learning_methods = """ИСПОЛЬЗУЙ ПРОВЕРЕННЫЕ МЕТОДЫ ОБУЧЕНИЯ ДЛЯ ВЗРОСЛЫХ:
 1. МЕТОД АНАЛИЗА - разбирай тему на составляющие
@@ -151,12 +151,12 @@ async def call_groq_api(prompt, user_profile=None, lang='ru', mode=None):
             }
 
             style_instruction = styles.get(teacher_style, styles['kind_mentor'])
-            
+
             # Текст на нужном языке
             if lang == 'ru':
                 interests_text = f"Интересы ученика: {interests}. Связывай объяснение с этими темами!"
                 age_text = f"Ученику {age} лет."
-                
+
                 system_prompt = f"""Ты - AiqynLearn, персональный AI-учитель. Отвечай ТОЛЬКО на русском языке.
 {age_text}
 {interests_text}
@@ -175,7 +175,7 @@ async def call_groq_api(prompt, user_profile=None, lang='ru', mode=None):
             else:
                 interests_text = f"Окуучунун кызыкчылыктары: {interests}. Түшүндүрүүнү ушул темалар менен байланыштыр!"
                 age_text = f"Окуучу {age} жашта."
-                
+
                 system_prompt = f"""Сен - AiqynLearn, жеке AI-мугалим. ЖОК гана кыргыз тилинде жооп бер.
 {age_text}
 {interests_text}
@@ -221,39 +221,39 @@ async def parse_quiz_response(quiz_text, lang='ru'):
         lines = quiz_text.split('\n')
         questions = []
         current_question = None
-        
+
         for line in lines:
             line = line.strip()
-            
+
             # Начало нового вопроса
             if line.startswith(('❓', '?')) or 'Вопрос' in line or 'Суроо' in line:
                 if current_question:
                     questions.append(current_question)
-                
+
                 current_question = {
                     'text': line.replace('❓', '').replace('?', '').strip(),
                     'options': [],
                     'correct_answer': None
                 }
-            
+
             # Вариант ответа с буквой
             elif line.startswith(('А)', 'Б)', 'В)', 'Г)', 'A)', 'B)', 'C)', 'D)')):
                 option_text = line[2:].strip()
                 letter = line[0]
                 current_question['options'].append((letter, option_text))
-            
+
             # Правильный ответ
             elif 'правильный' in line.lower() or 'туура' in line.lower() or 'correct' in line.lower():
                 for letter in ['А', 'Б', 'В', 'Г', 'A', 'B', 'C', 'D']:
                     if letter in line:
                         current_question['correct_answer'] = letter
                         break
-        
+
         if current_question:
             questions.append(current_question)
-        
+
         return questions
-        
+
     except Exception as e:
         print(f"Ошибка парсинга теста: {e}")
         return []
@@ -425,7 +425,7 @@ async def handle_interests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = f"✅ Добавлено: *{text}*\n\nТекущие интересы: {current}\n\nВыбери ещё или нажми 'Готово'"
     else:
         reply = f"✅ Кошулду: *{text}*\n\nАзыркы кызыкчылыктар: {current}\n\nДагы тандаңыз же 'Даяр' басыңыз"
-    
+
     await update.message.reply_text(reply, parse_mode='Markdown')
     return INTERESTS
 
@@ -516,7 +516,7 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'alien': '👽 Инопланетный учёный',
         'minimalist': '🎯 Минималист'
     }
-    
+
     style_display_ky = {
         'anime_sensei': '👨‍🏫 Аниме-сенсей',
         'strict_professor': '📚 Катуу профессор',
@@ -526,7 +526,7 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'alien': '👽 Инопланеталык илимпоз',
         'minimalist': '🎯 Минималист'
     }
-    
+
     style_display = style_display_ru if lang == 'ru' else style_display_ky
     teacher_style = style_display.get(profile.get('teacherStyle', 'kind_mentor'), 'Не выбран')
 
@@ -605,7 +605,7 @@ async def handle_lesson_mode(update: Update, context: ContextTypes.DEFAULT_TYPE)
             text = "*Сколько вопросов хочешь в тесте?*\n\nВыбери количество (от 1 до 10):"
         else:
             text = "*Тестте канча суроо болсун?*\n\nСанды тандаңыз (1ден 10го чейин):"
-        
+
         await query.edit_message_text(text, parse_mode='Markdown', reply_markup=create_number_keyboard(lang))
         return QUESTION_COUNT
     else:
@@ -657,14 +657,14 @@ async def handle_question_count(update: Update, context: ContextTypes.DEFAULT_TY
     if query.data == 'quiz_cancel':
         # Возвращаемся к выбору режима
         return await new_lesson_command(update, context)
-    
+
     count = int(query.data.split('_')[2])
-    
+
     # Сохраняем количество вопросов
     if 'creating_lesson' not in user:
         user['creating_lesson'] = {}
     user['creating_lesson']['question_count'] = count
-    
+
     # Спрашиваем тему
     if lang == 'ru':
         text = f"""✅ *Выбрано {count} вопросов*
@@ -773,7 +773,7 @@ async def handle_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 6. ❓ Аягында түшүнүүнү текшерүү үчүн 3 суроо бер
 
 БААРДЫК түшүндүрмөлөрдү кыргыз тилинде жаз!"""
-    
+
     elif lesson_mode == 'practice':
         if lang == 'ru':
             prompt = f"""{context_info}
@@ -801,7 +801,7 @@ async def handle_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 6. 🔗 Тапшырмаларды окуучунун кызыкчылыктары менен байланыштыр
 
 Баары кыргыз тилинде!"""
-    
+
     else:  # quiz
         if lang == 'ru':
             prompt = f"""{context_info}
@@ -873,7 +873,7 @@ D) [D варианты]
         if questions:
             new_lesson['questions'] = questions
             new_lesson['total_questions'] = len(questions)
-            
+
             # Извлекаем правильные ответы из конца текста
             correct_answers = []
             if "Правильные ответы:" in ai_response:
@@ -882,12 +882,12 @@ D) [D варианты]
             elif "Туура жооптор:" in ai_response:
                 answers_line = ai_response.split("Туура жооптор:")[1].split("\n")[0].strip()
                 correct_answers = [ans.strip() for ans in answers_line.split(",")]
-            
+
             # Применяем правильные ответы к вопросам
             for i, question in enumerate(questions):
                 if i < len(correct_answers):
                     question['correct_answer'] = correct_answers[i]
-            
+
             # Сохраняем тест в активный
             user['current_quiz'] = {
                 'questions': questions,
@@ -918,7 +918,7 @@ D) [D варианты]
 
         if lesson_mode == 'quiz':
             caption += f"\n\n🎯 *Тест создан!* {question_count} вопросов с вариантами ответов."
-            
+
         caption += f"""
 
 ────────────────
@@ -926,14 +926,14 @@ D) [D варианты]
 ────────────────
 
 💬 *Что дальше?*"""
-        
+
         if lesson_mode == 'quiz':
             caption += "\n• Нажми '🎯 Начать тест' чтобы начать тест с кнопками"
         else:
             caption += "\n• Задавай вопросы по теме"
-        
+
         caption += "\n• Попроси объяснить подробнее\n• Или создай новый урок"
-        
+
     else:
         caption = f"""✅ *Сабак түзүлдү!*
 
@@ -943,7 +943,7 @@ D) [D варианты]
 
         if lesson_mode == 'quiz':
             caption += f"\n\n🎯 *Тест түзүлдү!* {question_count} суроо жооп варианттары менен."
-            
+
         caption += f"""
 
 ────────────────
@@ -951,12 +951,12 @@ D) [D варианты]
 ────────────────
 
 💬 *Эми эмне кылабыз?*"""
-        
+
         if lesson_mode == 'quiz':
             caption += "\n• Баскычтар менен тестти баштоо үчүн '🎯 Тестти баштоо' басыңыз"
         else:
             caption += "\n• Тема боюнча суроо бериңиз"
-        
+
         caption += "\n• Толугураак түшүндүрүүнү сураңыз\n• Же жаңы сабак түзүңүз"
 
     if len(caption) > 4000:
@@ -1007,24 +1007,24 @@ async def start_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = get_user_data(user_id)
     lang = user.get('language', 'ru')
-    
+
     if not user.get('current_quiz'):
         msg = "Нет активного теста. Создайте новый тест!" if lang == 'ru' else "Активдүү тест жок. Жаңы тест түзүңүз!"
         await update.message.reply_text(msg, reply_markup=create_learning_keyboard(lang))
         return CHATTING
-    
+
     quiz = user['current_quiz']
     questions = quiz['questions']
     current_idx = quiz['current_question']
-    
+
     if current_idx >= len(questions):
         # Тест завершен
         await finish_quiz(update, context)
         return CHATTING
-    
+
     # Показываем текущий вопрос
     question = questions[current_idx]
-    
+
     if lang == 'ru':
         question_text = f"""🎯 *Тест: Вопрос {current_idx + 1} из {len(questions)}*
 
@@ -1033,51 +1033,51 @@ async def start_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
         question_text = f"""🎯 *Тест: Суроо {current_idx + 1} {len(questions)}дан*
 
 {question['text']}"""
-    
+
     # Создаем варианты ответов
     options = [opt[1] for opt in question['options']]
-    
+
     await update.message.reply_text(
         question_text,
         parse_mode='Markdown',
         reply_markup=create_quiz_keyboard(options, lang)
     )
-    
+
     return CHATTING
 
 async def handle_quiz_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка ответа на вопрос теста"""
     query = update.callback_query
     await query.answer()
-    
+
     user_id = update.effective_user.id
     user = get_user_data(user_id)
     lang = user.get('language', 'ru')
-    
+
     if not user.get('current_quiz'):
         await query.edit_message_text("❌ Тест не найден!" if lang == 'ru' else "❌ Тест табылган жок!")
         return
-    
+
     action = query.data.split('_')[2]
-    
+
     if action == 'finish':
         # Досрочное завершение теста
         await query.edit_message_text("🏁 Тест завершен досрочно!" if lang == 'ru' else "🏁 Тест эрте аяктады!")
         await finish_quiz(update, context)
         return
-    
+
     # Получаем выбранный ответ
     selected_answer = action  # A, B, C, D
-    
+
     quiz = user['current_quiz']
     current_idx = quiz['current_question']
     questions = quiz['questions']
-    
+
     if current_idx >= len(questions):
         return
-    
+
     question = questions[current_idx]
-    
+
     # Сохраняем ответ
     quiz['answers'].append({
         'question': current_idx,
@@ -1087,25 +1087,25 @@ async def handle_quiz_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         'question_text': question['text'],
         'options': question['options']
     })
-    
+
     # НЕ показываем правильный ответ сразу
     if lang == 'ru':
         result_text = f"✅ Ответ записан!\n\nПереходим к следующему вопросу..."
     else:
         result_text = f"✅ Жооп жазылды!\n\nКийинки суроого өтөбүз..."
-    
+
     await query.edit_message_text(result_text, parse_mode='Markdown')
-    
+
     # Переходим к следующему вопросу
     quiz['current_question'] += 1
-    
+
     # Ждем 1 секунду перед следующим вопросом
     await asyncio.sleep(1)
-    
+
     if quiz['current_question'] < len(questions):
         # Показываем следующий вопрос
         next_question = questions[quiz['current_question']]
-        
+
         if lang == 'ru':
             question_text = f"""🎯 *Тест: Вопрос {quiz['current_question'] + 1} из {len(questions)}*
 
@@ -1114,9 +1114,9 @@ async def handle_quiz_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
             question_text = f"""🎯 *Тест: Суроо {quiz['current_question'] + 1} {len(questions)}дан*
 
 {next_question['text']}"""
-        
+
         options = [opt[1] for opt in next_question['options']]
-        
+
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=question_text,
@@ -1132,18 +1132,18 @@ async def finish_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = get_user_data(user_id)
     lang = user.get('language', 'ru')
-    
+
     if not user.get('current_quiz'):
         return
-    
+
     quiz = user['current_quiz']
     answers = quiz['answers']
-    
+
     # Считаем результаты
     correct_count = sum(1 for a in answers if a.get('is_correct', False))
     total_count = len(answers)
     percentage = (correct_count / total_count * 100) if total_count > 0 else 0
-    
+
     # Формируем текст результатов
     if lang == 'ru':
         result_text = f"""🎉 *Тест завершен!*
@@ -1163,26 +1163,26 @@ async def finish_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⭐ Баалоо: {get_grade(percentage, lang)}
 
 Азыр мен каталарыңызды анализдейм жана аларды жөнөкөй сөздөр менен түшүндүрөм..."""
-    
+
     # Отправляем результаты
     if hasattr(update, 'callback_query'):
         await update.callback_query.message.reply_text(result_text, parse_mode='Markdown')
     else:
         await update.message.reply_text(result_text, parse_mode='Markdown')
-    
+
     # Создаем детальный анализ ошибок
     await analyze_mistakes(update, context, quiz, lang)
-    
+
     # Обновляем прогресс урока
     lesson_id = quiz.get('lesson_id')
     for lesson in user.get('lessons', []):
         if lesson.get('id') == lesson_id:
             lesson['progress'] = int(percentage)
             break
-    
+
     # Очищаем данные теста
     user['current_quiz'] = None
-    
+
     # Возвращаем клавиатуру обучения
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -1196,13 +1196,13 @@ async def analyze_mistakes(update: Update, context: ContextTypes.DEFAULT_TYPE, q
     user = get_user_data(user_id)
     profile = user.get('profile', {})
     answers = quiz.get('answers', [])
-    
+
     # Находим неправильные ответы
     wrong_answers = [a for a in answers if not a.get('is_correct', True)]
-    
+
     if not wrong_answers:
         if lang == 'ru':
-            praise = f"""🎊 *Отличный результат!* 
+            praise = f"""🎊 *Отличный результат!*
 
 Ты ответил правильно на все вопросы! Это показывает, что ты хорошо понял тему.
 
@@ -1213,7 +1213,7 @@ async def analyze_mistakes(update: Update, context: ContextTypes.DEFAULT_TYPE, q
 
 Продолжай в том же духе! 💪"""
         else:
-            praise = f"""🎊 *Эң жакшы натыйжа!* 
+            praise = f"""🎊 *Эң жакшы натыйжа!*
 
 Сиз бардык суроолорго туура жооп бердиңиз! Бул сиз теманы жакшы түшүнгөнүңүздү көрсөтөт.
 
@@ -1223,30 +1223,30 @@ async def analyze_mistakes(update: Update, context: ContextTypes.DEFAULT_TYPE, q
 3. Билимдерди жашоодо колдонууну табыңыз
 
 Ушуну менен улант! 💪"""
-        
+
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=praise,
             parse_mode='Markdown'
         )
         return
-    
+
     # Анализируем каждую ошибку
     if lang == 'ru':
         analysis_text = "🔍 *Анализ ошибок:*\n\n"
     else:
         analysis_text = "🔍 *Каталарды анализдөө:*\n\n"
-    
+
     for i, wrong in enumerate(wrong_answers[:3]):  # Анализируем до 3 ошибок
         question_text = wrong.get('question_text', '')
         selected = wrong.get('selected', '?')
         correct = wrong.get('correct', '?')
-        
+
         # Находим тексты вариантов
         options = wrong.get('options', [])
         selected_text = next((opt[1] for opt in options if opt[0] == selected), "Неизвестно")
         correct_text = next((opt[1] for opt in options if opt[0] == correct), "Неизвестно")
-        
+
         if lang == 'ru':
             analysis_text += f"{i+1}. *Вопрос:* {question_text}\n"
             analysis_text += f"   Твой ответ: {selected}) {selected_text}\n"
@@ -1255,13 +1255,13 @@ async def analyze_mistakes(update: Update, context: ContextTypes.DEFAULT_TYPE, q
             analysis_text += f"{i+1}. *Суроо:* {question_text}\n"
             analysis_text += f"   Сиздин жообуңуз: {selected}) {selected_text}\n"
             analysis_text += f"   Туура жооп: {correct}) {correct_text}\n\n"
-    
+
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=analysis_text,
         parse_mode='Markdown'
     )
-    
+
     # Создаем промпт для объяснения ошибок
     if lang == 'ru':
         mistake_prompt = f"""Ученик совершил следующие ошибки в тесте:
@@ -1299,15 +1299,15 @@ async def analyze_mistakes(update: Update, context: ContextTypes.DEFAULT_TYPE, q
 5. Колдоочу жана мотивациялоочу бол
 
 Жашка туура келген үйрөтүү ыкмаларын колдон!"""
-    
+
     loading_text = "⏳ Анализирую ошибки и готовлю объяснение..." if lang == 'ru' else "⏳ Каталарды анализдейм жана түшүндүрмө даярдап жатам..."
     loading_msg = await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=loading_text
     )
-    
+
     explanation = await call_groq_api(mistake_prompt, profile, lang)
-    
+
     await loading_msg.edit_text(f"💡 *Объяснение ошибок:*\n\n{explanation}" if lang == 'ru' else f"💡 *Каталардын түшүндүрмөсү:*\n\n{explanation}")
 
 def get_grade(percentage, lang='ru'):
